@@ -291,7 +291,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         home.setItem(22, this.namedItem(Items.CHEST, "Stored Items"));
         home.setItem(4, this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + this.storedXp + " (click to collect)"));
 
-        return this.createLockedMenu(containerId, inventory, home, rows, "Super Spawner - Home", (slot, button, menuPlayer) -> {
+        return this.createLockedMenu(containerId, inventory, home, rows, "Super Spawner - Home", (slot, button, input, menuPlayer) -> {
             if (slot == 22) {
                 menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                 return;
@@ -486,17 +486,424 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         };
     }
 
+    private enum UpgradeType {
+        SUGAR,
+        SPAWNER,
+        NETHER_STAR,
+        TOTEM
+    }
+
     private void populateUpgradesMenu(SimpleContainer upgrades) {
-        upgrades.setItem(11, this.namedItem(Items.SUGAR, "Add Sugar (current: " + this.sugar + "/" + MAX_SUGAR + ")"));
-        upgrades.setItem(12, this.namedItem(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM, "Add Matching Super Spawner (current: " + this.bonusSpawners + ")"));
-        upgrades.setItem(13, this.namedItem(Items.NETHER_STAR, this.hasNetherStar ? "Nether Star: Applied" : "Apply Nether Star"));
-        upgrades.setItem(14, this.namedItem(Items.TOTEM_OF_UNDYING, this.hasTotem ? "Totem: Applied" : "Apply Totem"));
+        upgrades.setItem(11, this.namedItem(Items.SUGAR, "Sugar (current: " + this.sugar + "/" + MAX_SUGAR + ")", List.of(
+                Component.literal("Left-click: +1").withStyle(ChatFormatting.GRAY),
+                Component.literal("Right-click: -1").withStyle(ChatFormatting.GRAY),
+                Component.literal("Shift-click: Add/Remove multiple via Anvil").withStyle(ChatFormatting.YELLOW)
+        )));
+        upgrades.setItem(12, this.namedItem(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM, "Matching Super Spawners (current: " + this.bonusSpawners + ")", List.of(
+                Component.literal("Left-click: +1").withStyle(ChatFormatting.GRAY),
+                Component.literal("Right-click: -1").withStyle(ChatFormatting.GRAY),
+                Component.literal("Shift-click: Add/Remove multiple via Anvil").withStyle(ChatFormatting.YELLOW)
+        )));
+        upgrades.setItem(13, this.namedItem(Items.NETHER_STAR, this.hasNetherStar ? "Nether Star: Applied" : "Apply Nether Star", List.of(
+                Component.literal("Left-click: Apply").withStyle(ChatFormatting.GRAY),
+                Component.literal("Right-click: Remove").withStyle(ChatFormatting.GRAY),
+                Component.literal("Shift-click: Add/Remove via Anvil").withStyle(ChatFormatting.YELLOW)
+        )));
+        upgrades.setItem(14, this.namedItem(Items.TOTEM_OF_UNDYING, this.hasTotem ? "Totem: Applied" : "Apply Totem", List.of(
+                Component.literal("Left-click: Apply").withStyle(ChatFormatting.GRAY),
+                Component.literal("Right-click: Remove").withStyle(ChatFormatting.GRAY),
+                Component.literal("Shift-click: Add/Remove via Anvil").withStyle(ChatFormatting.YELLOW)
+        )));
         upgrades.setItem(26, this.namedItem(Items.BARRIER, "Back"));
     }
 
     @FunctionalInterface
     private interface LockedMenuClickHandler {
-        void handle(int slot, int button, Player player);
+        void handle(int slot, int button, net.minecraft.world.inventory.ContainerInput input, Player player);
+    }
+
+    private String getUpgradeDisplayName(UpgradeType type) {
+        return switch (type) {
+            case SUGAR -> "Sugar";
+            case SPAWNER -> "Matching Spawners";
+            case NETHER_STAR -> "Nether Star";
+            case TOTEM -> "Totem of Undying";
+        };
+    }
+
+    private void openUpgradeAnvilMenu(Player player, UpgradeType type, boolean isAdd) {
+        String title = (isAdd ? "Add " : "Remove ") + this.getUpgradeDisplayName(type);
+        player.openMenu(new SimpleMenuProvider((containerId, inventory, p) -> {
+            return new UpgradeAmountAnvilMenu(containerId, inventory, type, isAdd);
+        }, Component.literal(title)));
+    }
+
+    private class UpgradeAmountAnvilMenu extends net.minecraft.world.inventory.AnvilMenu {
+        private final UpgradeType type;
+        private final boolean isAdd;
+        private String typedText = "1";
+        private boolean confirmed = false;
+
+        public UpgradeAmountAnvilMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory, UpgradeType type, boolean isAdd) {
+            super(containerId, inventory, net.minecraft.world.inventory.ContainerLevelAccess.NULL);
+            this.type = type;
+            this.isAdd = isAdd;
+
+            ItemStack initialInput = this.getInitialInputStack();
+            this.inputSlots.setItem(0, initialInput);
+            this.createResult();
+        }
+
+        private ItemStack getInitialInputStack() {
+            ItemStack stack;
+            switch (this.type) {
+                case SUGAR -> stack = new ItemStack(Items.SUGAR);
+                case SPAWNER -> stack = SuperSpawnerBlockEntity.this.createDroppedSpawnerStack();
+                case NETHER_STAR -> stack = new ItemStack(Items.NETHER_STAR);
+                case TOTEM -> stack = new ItemStack(Items.TOTEM_OF_UNDYING);
+                default -> stack = new ItemStack(Items.PAPER);
+            }
+            stack.set(DataComponents.CUSTOM_NAME, Component.literal("1"));
+            return stack;
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return SuperSpawnerBlockEntity.this.stillValid(player);
+        }
+
+        @Override
+        public int getCost() {
+            return 0;
+        }
+
+        @Override
+        protected boolean mayPickup(Player player, boolean hasStack) {
+            return true;
+        }
+
+        @Override
+        public boolean setItemName(String name) {
+            this.typedText = (name == null) ? "" : name.trim();
+            this.createResult();
+            return true;
+        }
+
+        @Override
+        public void createResult() {
+            int amount = -1;
+            try {
+                if (this.typedText != null && !this.typedText.isEmpty()) {
+                    amount = Integer.parseInt(this.typedText);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+
+            if (amount <= 0) {
+                ItemStack error = namedItem(Items.BARRIER, "Invalid Number", List.of(
+                        Component.literal("Please enter a positive integer").withStyle(ChatFormatting.RED)
+                ));
+                this.resultSlots.setItem(0, error);
+                this.broadcastChanges();
+                return;
+            }
+
+            if (this.isAdd) {
+                switch (this.type) {
+                    case SUGAR -> {
+                        int capacityRemaining = Math.max(0, MAX_SUGAR - SuperSpawnerBlockEntity.this.sugar);
+                        int inInv = SuperSpawnerBlockEntity.this.countItem(this.player, Items.SUGAR);
+                        int maxPossible = this.player.getAbilities().instabuild ? capacityRemaining : Math.min(capacityRemaining, inInv);
+                        int actual = Math.min(amount, maxPossible);
+                        if (actual > 0) {
+                            ItemStack res = namedItem(Items.SUGAR, "Click to Add " + actual + " Sugar", List.of(
+                                    Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Current: " + SuperSpawnerBlockEntity.this.sugar + "/" + MAX_SUGAR).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("In Inventory: " + inInv).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Will add: " + actual).withStyle(ChatFormatting.GREEN)
+                            ));
+                            this.resultSlots.setItem(0, res);
+                        } else {
+                            String reason = (capacityRemaining <= 0) ? "Sugar already at max (" + MAX_SUGAR + ")" : "You do not have any Sugar in your inventory";
+                            ItemStack error = namedItem(Items.BARRIER, "Cannot Add Sugar", List.of(Component.literal(reason).withStyle(ChatFormatting.RED)));
+                            this.resultSlots.setItem(0, error);
+                        }
+                    }
+                    case SPAWNER -> {
+                        int inInv = SuperSpawnerBlockEntity.this.countMatchingSpawners(this.player);
+                        int maxPossible = this.player.getAbilities().instabuild ? amount : inInv;
+                        int actual = Math.min(amount, maxPossible);
+                        if (actual > 0) {
+                            ItemStack res = SuperSpawnerBlockEntity.this.createDroppedSpawnerStack();
+                            res.set(DataComponents.CUSTOM_NAME, Component.literal("Click to Add " + actual + " Super Spawner" + (actual > 1 ? "s" : "")));
+                            res.set(DataComponents.LORE, new ItemLore(List.of(
+                                    Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Current bonus: " + SuperSpawnerBlockEntity.this.bonusSpawners).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("In Inventory: " + inInv).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Will add: " + actual).withStyle(ChatFormatting.GREEN)
+                            )));
+                            this.resultSlots.setItem(0, res);
+                        } else {
+                            ItemStack error = namedItem(Items.BARRIER, "Cannot Add Super Spawners", List.of(
+                                    Component.literal("You do not have any matching Super Spawners in your inventory").withStyle(ChatFormatting.RED)
+                            ));
+                            this.resultSlots.setItem(0, error);
+                        }
+                    }
+                    case NETHER_STAR -> {
+                        if (SuperSpawnerBlockEntity.this.hasNetherStar) {
+                            this.resultSlots.setItem(0, namedItem(Items.BARRIER, "Nether Star Already Applied", List.of(
+                                    Component.literal("Cannot apply more than 1 Nether Star").withStyle(ChatFormatting.RED)
+                            )));
+                        } else {
+                            int inInv = SuperSpawnerBlockEntity.this.countItem(this.player, Items.NETHER_STAR);
+                            if (inInv > 0 || this.player.getAbilities().instabuild) {
+                                this.resultSlots.setItem(0, namedItem(Items.NETHER_STAR, "Click to Apply Nether Star", List.of(
+                                        Component.literal("Will apply 1 Nether Star").withStyle(ChatFormatting.GREEN)
+                                )));
+                            } else {
+                                this.resultSlots.setItem(0, namedItem(Items.BARRIER, "No Nether Star", List.of(
+                                        Component.literal("You do not have a Nether Star in your inventory").withStyle(ChatFormatting.RED)
+                                )));
+                            }
+                        }
+                    }
+                    case TOTEM -> {
+                        if (SuperSpawnerBlockEntity.this.hasTotem) {
+                            this.resultSlots.setItem(0, namedItem(Items.BARRIER, "Totem Already Applied", List.of(
+                                    Component.literal("Cannot apply more than 1 Totem").withStyle(ChatFormatting.RED)
+                            )));
+                        } else {
+                            int inInv = SuperSpawnerBlockEntity.this.countItem(this.player, Items.TOTEM_OF_UNDYING);
+                            if (inInv > 0 || this.player.getAbilities().instabuild) {
+                                this.resultSlots.setItem(0, namedItem(Items.TOTEM_OF_UNDYING, "Click to Apply Totem of Undying", List.of(
+                                        Component.literal("Will apply 1 Totem").withStyle(ChatFormatting.GREEN)
+                                )));
+                            } else {
+                                this.resultSlots.setItem(0, namedItem(Items.BARRIER, "No Totem of Undying", List.of(
+                                        Component.literal("You do not have a Totem of Undying in your inventory").withStyle(ChatFormatting.RED)
+                                )));
+                            }
+                        }
+                    }
+                }
+            } else {
+                switch (this.type) {
+                    case SUGAR -> {
+                        int current = SuperSpawnerBlockEntity.this.sugar;
+                        int space = SuperSpawnerBlockEntity.this.getInventorySpace(this.player, new ItemStack(Items.SUGAR));
+                        int maxPossible = Math.min(current, space);
+                        int actual = Math.min(amount, maxPossible);
+                        if (actual > 0) {
+                            ItemStack res = namedItem(Items.SUGAR, "Click to Remove " + actual + " Sugar", List.of(
+                                    Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Current in spawner: " + current).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Inventory Space: " + space).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Will remove: " + actual).withStyle(ChatFormatting.GREEN)
+                            ));
+                            this.resultSlots.setItem(0, res);
+                        } else {
+                            String reason = (current <= 0) ? "Spawner has no Sugar installed" : "Your inventory is full";
+                            ItemStack error = namedItem(Items.BARRIER, "Cannot Remove Sugar", List.of(Component.literal(reason).withStyle(ChatFormatting.RED)));
+                            this.resultSlots.setItem(0, error);
+                        }
+                    }
+                    case SPAWNER -> {
+                        int current = SuperSpawnerBlockEntity.this.bonusSpawners;
+                        ItemStack spawnerStack = SuperSpawnerBlockEntity.this.createDroppedSpawnerStack();
+                        int space = SuperSpawnerBlockEntity.this.getInventorySpace(this.player, spawnerStack);
+                        int maxPossible = Math.min(current, space);
+                        int actual = Math.min(amount, maxPossible);
+                        if (actual > 0) {
+                            ItemStack res = spawnerStack.copy();
+                            res.set(DataComponents.CUSTOM_NAME, Component.literal("Click to Remove " + actual + " Super Spawner" + (actual > 1 ? "s" : "")));
+                            res.set(DataComponents.LORE, new ItemLore(List.of(
+                                    Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Current bonus: " + current).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Inventory Empty Slots: " + space).withStyle(ChatFormatting.GRAY),
+                                    Component.literal("Will remove: " + actual).withStyle(ChatFormatting.GREEN)
+                            )));
+                            this.resultSlots.setItem(0, res);
+                        } else {
+                            String reason = (current <= 0) ? "Spawner has no bonus spawners installed" : "Your inventory has no empty slots";
+                            ItemStack error = namedItem(Items.BARRIER, "Cannot Remove Super Spawners", List.of(Component.literal(reason).withStyle(ChatFormatting.RED)));
+                            this.resultSlots.setItem(0, error);
+                        }
+                    }
+                    case NETHER_STAR -> {
+                        if (!SuperSpawnerBlockEntity.this.hasNetherStar) {
+                            this.resultSlots.setItem(0, namedItem(Items.BARRIER, "No Nether Star Applied", List.of(
+                                    Component.literal("Spawner does not have a Nether Star").withStyle(ChatFormatting.RED)
+                            )));
+                        } else {
+                            int space = SuperSpawnerBlockEntity.this.getInventorySpace(this.player, new ItemStack(Items.NETHER_STAR));
+                            if (space > 0) {
+                                this.resultSlots.setItem(0, namedItem(Items.NETHER_STAR, "Click to Remove Nether Star", List.of(
+                                        Component.literal("Will return 1 Nether Star").withStyle(ChatFormatting.GREEN)
+                                )));
+                            } else {
+                                this.resultSlots.setItem(0, namedItem(Items.BARRIER, "Inventory Full", List.of(
+                                        Component.literal("Your inventory is full").withStyle(ChatFormatting.RED)
+                                )));
+                            }
+                        }
+                    }
+                    case TOTEM -> {
+                        if (!SuperSpawnerBlockEntity.this.hasTotem) {
+                            this.resultSlots.setItem(0, namedItem(Items.BARRIER, "No Totem Applied", List.of(
+                                    Component.literal("Spawner does not have a Totem").withStyle(ChatFormatting.RED)
+                            )));
+                        } else {
+                            int space = SuperSpawnerBlockEntity.this.getInventorySpace(this.player, new ItemStack(Items.TOTEM_OF_UNDYING));
+                            if (space > 0) {
+                                this.resultSlots.setItem(0, namedItem(Items.TOTEM_OF_UNDYING, "Click to Remove Totem of Undying", List.of(
+                                        Component.literal("Will return 1 Totem").withStyle(ChatFormatting.GREEN)
+                                )));
+                            } else {
+                                this.resultSlots.setItem(0, namedItem(Items.BARRIER, "Inventory Full", List.of(
+                                        Component.literal("Your inventory is full").withStyle(ChatFormatting.RED)
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+            this.broadcastChanges();
+        }
+
+        private void confirmAction(Player player) {
+            if (this.confirmed) {
+                return;
+            }
+            int amount = -1;
+            try {
+                if (this.typedText != null && !this.typedText.isEmpty()) {
+                    amount = Integer.parseInt(this.typedText);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+            if (amount <= 0) {
+                return;
+            }
+
+            boolean modified = false;
+
+            if (this.isAdd) {
+                switch (this.type) {
+                    case SUGAR -> {
+                        int remainingCap = Math.max(0, MAX_SUGAR - SuperSpawnerBlockEntity.this.sugar);
+                        int toTake = Math.min(amount, remainingCap);
+                        if (toTake > 0) {
+                            int consumed = SuperSpawnerBlockEntity.this.consumeItems(player, Items.SUGAR, toTake);
+                            if (consumed > 0) {
+                                SuperSpawnerBlockEntity.this.sugar += consumed;
+                                modified = true;
+                            }
+                        }
+                    }
+                    case SPAWNER -> {
+                        if (amount > 0) {
+                            int consumed = SuperSpawnerBlockEntity.this.consumeMatchingSpawners(player, amount);
+                            if (consumed > 0) {
+                                SuperSpawnerBlockEntity.this.bonusSpawners += consumed;
+                                SuperSpawnerBlockEntity.this.normalizeStoredItems();
+                                modified = true;
+                            }
+                        }
+                    }
+                    case NETHER_STAR -> {
+                        if (!SuperSpawnerBlockEntity.this.hasNetherStar && SuperSpawnerBlockEntity.this.consumeItem(player, Items.NETHER_STAR)) {
+                            SuperSpawnerBlockEntity.this.hasNetherStar = true;
+                            modified = true;
+                        }
+                    }
+                    case TOTEM -> {
+                        if (!SuperSpawnerBlockEntity.this.hasTotem && SuperSpawnerBlockEntity.this.consumeItem(player, Items.TOTEM_OF_UNDYING)) {
+                            SuperSpawnerBlockEntity.this.hasTotem = true;
+                            modified = true;
+                        }
+                    }
+                }
+            } else {
+                switch (this.type) {
+                    case SUGAR -> {
+                        int current = SuperSpawnerBlockEntity.this.sugar;
+                        int toRemove = Math.min(amount, current);
+                        if (toRemove > 0) {
+                            int returned = SuperSpawnerBlockEntity.this.returnUpgradeItems(player, new ItemStack(Items.SUGAR), toRemove);
+                            if (returned > 0) {
+                                SuperSpawnerBlockEntity.this.sugar -= returned;
+                                modified = true;
+                            }
+                        }
+                    }
+                    case SPAWNER -> {
+                        int current = SuperSpawnerBlockEntity.this.bonusSpawners;
+                        int toRemove = Math.min(amount, current);
+                        if (toRemove > 0) {
+                            ItemStack spawnerStack = SuperSpawnerBlockEntity.this.createDroppedSpawnerStack();
+                            int returned = SuperSpawnerBlockEntity.this.returnUpgradeItems(player, spawnerStack, toRemove);
+                            if (returned > 0) {
+                                SuperSpawnerBlockEntity.this.bonusSpawners -= returned;
+                                SuperSpawnerBlockEntity.this.normalizeStoredItems();
+                                modified = true;
+                            }
+                        }
+                    }
+                    case NETHER_STAR -> {
+                        if (SuperSpawnerBlockEntity.this.hasNetherStar && SuperSpawnerBlockEntity.this.tryReturnUpgradeItem(player, new ItemStack(Items.NETHER_STAR))) {
+                            SuperSpawnerBlockEntity.this.hasNetherStar = false;
+                            modified = true;
+                        }
+                    }
+                    case TOTEM -> {
+                        if (SuperSpawnerBlockEntity.this.hasTotem && SuperSpawnerBlockEntity.this.tryReturnUpgradeItem(player, new ItemStack(Items.TOTEM_OF_UNDYING))) {
+                            SuperSpawnerBlockEntity.this.hasTotem = false;
+                            modified = true;
+                        }
+                    }
+                }
+            }
+
+            if (modified) {
+                SuperSpawnerBlockEntity.this.setChanged();
+            }
+            this.confirmed = true;
+            this.inputSlots.clearContent();
+            this.resultSlots.clearContent();
+            player.openMenu(new SimpleMenuProvider((id, inv, p) -> SuperSpawnerBlockEntity.this.createUpgradesMenu(id, inv), Component.literal("Super Spawner - Upgrades")));
+        }
+
+        @Override
+        public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player player) {
+            if (slotId == 0 || slotId == 1) {
+                return;
+            }
+            if (slotId == 2) {
+                this.confirmAction(player);
+                return;
+            }
+            if (slotId >= 3 && input == net.minecraft.world.inventory.ContainerInput.QUICK_MOVE) {
+                return;
+            }
+            super.clicked(slotId, button, input, player);
+        }
+
+        @Override
+        public ItemStack quickMoveStack(Player player, int slotIndex) {
+            if (slotIndex == 2) {
+                this.confirmAction(player);
+                return ItemStack.EMPTY;
+            }
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public void removed(Player player) {
+            this.inputSlots.clearContent();
+            this.resultSlots.clearContent();
+            super.removed(player);
+        }
     }
 
     private AbstractContainerMenu createUpgradesMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory) {
@@ -504,9 +911,30 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         SimpleContainer upgrades = new SimpleContainer(rows * 9);
         this.populateUpgradesMenu(upgrades);
 
-        return this.createLockedMenu(containerId, inventory, upgrades, rows, "Super Spawner - Upgrades", (slot, button, menuPlayer) -> {
+        return this.createLockedMenu(containerId, inventory, upgrades, rows, "Super Spawner - Upgrades", (slot, button, input, menuPlayer) -> {
             if (slot == 26) {
                 menuPlayer.openMenu(this);
+                return;
+            }
+
+            if (input == net.minecraft.world.inventory.ContainerInput.QUICK_MOVE) {
+                boolean isAdd = (button == 0);
+                if (slot == 11) {
+                    this.openUpgradeAnvilMenu(menuPlayer, UpgradeType.SUGAR, isAdd);
+                    return;
+                }
+                if (slot == 12) {
+                    this.openUpgradeAnvilMenu(menuPlayer, UpgradeType.SPAWNER, isAdd);
+                    return;
+                }
+                if (slot == 13) {
+                    this.openUpgradeAnvilMenu(menuPlayer, UpgradeType.NETHER_STAR, isAdd);
+                    return;
+                }
+                if (slot == 14) {
+                    this.openUpgradeAnvilMenu(menuPlayer, UpgradeType.TOTEM, isAdd);
+                    return;
+                }
                 return;
             }
 
@@ -591,7 +1019,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         stats.setItem(16, this.namedItem(Items.TOTEM_OF_UNDYING, "Totem: " + (this.hasTotem ? "Yes" : "No")));
         stats.setItem(26, this.namedItem(Items.BARRIER, "Back"));
 
-        return this.createLockedMenu(containerId, inventory, stats, rows, "Super Spawner - Stats", (slot, button, menuPlayer) -> {
+        return this.createLockedMenu(containerId, inventory, stats, rows, "Super Spawner - Stats", (slot, button, input, menuPlayer) -> {
             if (slot == 26) {
                 menuPlayer.openMenu(this);
             }
@@ -610,7 +1038,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             @Override
             public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player player) {
                 if (slotId >= 0 && slotId < rows * 9) {
-                    slotClick.handle(slotId, button, player);
+                    slotClick.handle(slotId, button, input, player);
                     return;
                 }
                 super.clicked(slotId, button, input, player);
@@ -619,33 +1047,114 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     private boolean tryReturnUpgradeItem(Player player, ItemStack stack) {
-        if (!this.hasInventorySpace(player, stack)) {
-            player.sendSystemMessage(Component.literal("Your inventory is full!").withStyle(ChatFormatting.RED));
-            return false;
-        }
-        player.getInventory().add(stack.copy());
-        return true;
+        return this.returnUpgradeItems(player, stack, 1) > 0;
     }
 
-    private boolean hasInventorySpace(Player player, ItemStack stack) {
+    private int getInventorySpace(Player player, ItemStack stack) {
         if (stack.isEmpty()) {
-            return true;
+            return Integer.MAX_VALUE;
         }
-        int needed = stack.getCount();
+        int maxStackSize = stack.getMaxStackSize();
+        int space = 0;
         for (int i = 0; i < 36; i++) {
             ItemStack existing = player.getInventory().getItem(i);
             if (existing.isEmpty()) {
-                return true;
-            }
-            if (ItemStack.isSameItemSameComponents(existing, stack)) {
-                int room = existing.getMaxStackSize() - existing.getCount();
-                if (room >= needed) {
-                    return true;
-                }
-                needed -= room;
+                space += maxStackSize;
+            } else if (ItemStack.isSameItemSameComponents(existing, stack)) {
+                space += Math.max(0, maxStackSize - existing.getCount());
             }
         }
-        return needed <= 0;
+        return space;
+    }
+
+    private int returnUpgradeItems(Player player, ItemStack stack, int count) {
+        if (count <= 0 || stack.isEmpty()) {
+            return 0;
+        }
+        int space = this.getInventorySpace(player, stack);
+        int toReturn = Math.min(count, space);
+        if (toReturn <= 0) {
+            player.sendSystemMessage(Component.literal("Your inventory is full!").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        int remaining = toReturn;
+        int maxStack = stack.getMaxStackSize();
+        while (remaining > 0) {
+            int batch = Math.min(remaining, maxStack);
+            ItemStack copy = stack.copy();
+            copy.setCount(batch);
+            player.getInventory().add(copy);
+            remaining -= batch;
+        }
+        return toReturn;
+    }
+
+    private int countItem(Player player, Item item) {
+        int count = 0;
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (stack.is(item)) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private int countMatchingSpawners(Player player) {
+        int count = 0;
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
+                continue;
+            }
+            Optional<Identifier> incoming = readMobTypeFromItem(stack);
+            if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private int consumeItems(Player player, Item item, int amount) {
+        if (amount <= 0) {
+            return 0;
+        }
+        if (player.getAbilities().instabuild) {
+            return amount;
+        }
+        int remaining = amount;
+        for (int i = 0; i < player.getInventory().getContainerSize() && remaining > 0; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (stack.is(item)) {
+                int toTake = Math.min(remaining, stack.getCount());
+                stack.shrink(toTake);
+                remaining -= toTake;
+            }
+        }
+        return amount - remaining;
+    }
+
+    private int consumeMatchingSpawners(Player player, int amount) {
+        if (amount <= 0) {
+            return 0;
+        }
+        if (player.getAbilities().instabuild) {
+            return amount;
+        }
+        int remaining = amount;
+        for (int i = 0; i < player.getInventory().getContainerSize() && remaining > 0; i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (!stack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
+                continue;
+            }
+            Optional<Identifier> incoming = readMobTypeFromItem(stack);
+            if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
+                int toTake = Math.min(remaining, stack.getCount());
+                stack.shrink(toTake);
+                remaining -= toTake;
+            }
+        }
+        return amount - remaining;
     }
 
     private ItemStack namedItem(Item item, String name) {
