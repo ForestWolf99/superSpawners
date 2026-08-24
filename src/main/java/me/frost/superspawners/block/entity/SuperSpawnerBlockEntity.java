@@ -488,7 +488,13 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         int rows = 3;
         SimpleContainer stats = new SimpleContainer(rows * 9);
         stats.setItem(11, this.namedItem(Items.SPAWNER, "Mob: " + this.getMobType()));
-        stats.setItem(12, this.namedItem(Items.SUGAR, "Sugar: " + this.sugar));
+        int intervalTicks = this.getIntervalTicks();
+        double intervalSeconds = intervalTicks / 20.0;
+        stats.setItem(12, this.namedItem(
+                Items.SUGAR,
+                "Sugar: " + this.sugar,
+                List.of(Component.literal(String.format(java.util.Locale.ROOT, "Spawn Interval: %d ticks / %.2fs", intervalTicks, intervalSeconds)).withStyle(ChatFormatting.GRAY))
+        ));
         stats.setItem(13, this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + this.storedXp));
         stats.setItem(14, this.namedItem(Items.CHEST, "Storage Slots: " + this.getStorageSlots()));
         stats.setItem(15, this.namedItem(Items.NETHER_STAR, "Nether Star: " + (this.hasNetherStar ? "Yes" : "No")));
@@ -553,8 +559,15 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     private ItemStack namedItem(Item item, String name) {
+        return this.namedItem(item, name, List.of());
+    }
+
+    private ItemStack namedItem(Item item, String name, List<Component> lore) {
         ItemStack stack = new ItemStack(item);
         stack.set(DataComponents.CUSTOM_NAME, Component.literal(name));
+        if (lore != null && !lore.isEmpty()) {
+            stack.set(DataComponents.LORE, new ItemLore(lore));
+        }
         return stack;
     }
 
