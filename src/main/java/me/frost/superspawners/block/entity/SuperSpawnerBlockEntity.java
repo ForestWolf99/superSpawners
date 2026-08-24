@@ -61,6 +61,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     private int storedXp;
     private boolean hasNetherStar;
     private boolean hasTotem;
+    private long lastWarningGameTime = -100L;
     private List<ItemStack> storedItems = new ArrayList<>();
     private final Map<UUID, Integer> storagePageByPlayer = new HashMap<>();
 
@@ -204,18 +205,68 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     public void claimAll(Player player) {
-        for (ItemStack storedItem : this.storedItems) {
-            if (!storedItem.isEmpty()) {
-                player.getInventory().placeItemBackInInventory(storedItem.copy());
-            }
-        }
-        this.storedItems.clear();
+        this.claimAllItems(player);
         if (this.storedXp > 0) {
             player.giveExperiencePoints(this.storedXp);
             this.storedXp = 0;
+            this.setChanged();
         }
+    }
+
+    public void claimAllItems(Player player) {
         this.normalizeStoredItems();
-        this.setChanged();
+        boolean changed = false;
+        for (int i = 0; i < this.storedItems.size(); i++) {
+            ItemStack storedItem = this.storedItems.get(i);
+            if (storedItem.isEmpty()) {
+                continue;
+            }
+            ItemStack toAdd = storedItem.copy();
+            player.getInventory().add(toAdd);
+            if (toAdd.getCount() != storedItem.getCount()) {
+                changed = true;
+                if (toAdd.isEmpty()) {
+                    this.storedItems.set(i, ItemStack.EMPTY);
+                } else {
+                    this.storedItems.set(i, toAdd);
+                }
+            }
+        }
+        if (changed) {
+            this.normalizeStoredItems();
+            this.setChanged();
+        }
+    }
+
+    public boolean hasManyStoredItems() {
+        int count = 0;
+        int stacks = 0;
+        for (ItemStack stack : this.storedItems) {
+            if (!stack.isEmpty()) {
+                count += stack.getCount();
+                stacks++;
+                if (count > 64 || stacks > 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public void sendBreakWarning(Player player) {
+        if (player != null) {
+            player.sendSystemMessage(Component.literal("Warning: Breaking a spawner with a lot of items in it will create tons of item stacks!").withStyle(ChatFormatting.YELLOW));
+        }
+    }
+
+    public void warnIfManyItems(Player player) {
+        if (player != null && this.hasManyStoredItems() && this.level != null) {
+            long gameTime = this.level.getGameTime();
+            if (gameTime - this.lastWarningGameTime > 60L) {
+                this.lastWarningGameTime = gameTime;
+                this.sendBreakWarning(player);
+            }
+        }
     }
 
     public ItemStack createDroppedSpawnerStack() {
@@ -445,15 +496,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                     return;
                 }
                 if (slotId == 52) {
-                    for (int i = 0; i < SuperSpawnerBlockEntity.this.storedItems.size(); i++) {
-                        ItemStack storedItem = SuperSpawnerBlockEntity.this.storedItems.get(i);
-                        if (!storedItem.isEmpty()) {
-                            menuPlayer.getInventory().placeItemBackInInventory(storedItem.copy());
-                        }
-                    }
-                    SuperSpawnerBlockEntity.this.storedItems.clear();
-                    SuperSpawnerBlockEntity.this.normalizeStoredItems();
-                    SuperSpawnerBlockEntity.this.setChanged();
+                    SuperSpawnerBlockEntity.this.claimAllItems(menuPlayer);
                     this.keepPageOnClose = true;
                     menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> SuperSpawnerBlockEntity.this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                     return;

@@ -5,6 +5,7 @@ import me.frost.superspawners.block.entity.SuperSpawnerBlockEntity;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
@@ -44,6 +45,17 @@ public class SuperSpawnerBlock extends Block implements EntityBlock, PolymerBloc
             return (lvl, pos, blockState, entity) -> SuperSpawnerBlockEntity.tick(lvl, pos, blockState, (SuperSpawnerBlockEntity) entity);
         }
         return null;
+    }
+
+    @Override
+    public void attack(BlockState state, Level level, BlockPos pos, Player player) {
+        super.attack(state, level, pos, player);
+        if (!level.isClientSide()) {
+            BlockEntity blockEntity = level.getBlockEntity(pos);
+            if (blockEntity instanceof SuperSpawnerBlockEntity superSpawnerBlockEntity) {
+                superSpawnerBlockEntity.warnIfManyItems(player);
+            }
+        }
     }
 
     @Override

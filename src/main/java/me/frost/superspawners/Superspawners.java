@@ -113,6 +113,9 @@ public class Superspawners implements ModInitializer {
             return true;
         }
         if (blockState.is(SUPER_SPAWNER_BLOCK) && blockEntity instanceof SuperSpawnerBlockEntity superSpawnerBlockEntity) {
+            if (superSpawnerBlockEntity.hasManyStoredItems()) {
+                superSpawnerBlockEntity.sendBreakWarning(player);
+            }
             Block.popResource(world, blockPos, superSpawnerBlockEntity.createDroppedSpawnerStack());
             superSpawnerBlockEntity.dropManagedSpawners(world, blockPos);
             superSpawnerBlockEntity.dropAppliedUpgrades(world, blockPos);
