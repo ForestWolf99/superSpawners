@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "superspawners",
+  "version": "${version}",
+  "name": "SuperSpawners",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/superspawners/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "me.frost.superspawners.client.SuperspawnersDataGenerator"
+    ],
+    "client": [
+      "me.frost.superspawners.client.SuperspawnersClient"
+    ],
+    "main": [
+      "me.frost.superspawners.Superspawners"
+    ]
+  },
+  "mixins": [
+    "superspawners.mixins.json",
+    {
+      "config": "superspawners.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
