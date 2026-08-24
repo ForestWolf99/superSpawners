@@ -17,6 +17,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.storage.ValueInput;
@@ -314,30 +315,98 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         this.storagePageByPlayer.put(player.getUUID(), page);
         int pageStart = page * STORAGE_PAGE_SIZE;
 
-        SimpleContainer simpleContainer = new SimpleContainer(rows * 9);
-        for (int i = 0; i < STORAGE_PAGE_SIZE; i++) {
-            simpleContainer.setItem(i, this.getItem(pageStart + i));
-        }
-        simpleContainer.setItem(45, this.namedItem(Items.ARROW, "Previous Page"));
-        simpleContainer.setItem(46, this.namedItem(Items.BARRIER, "Back"));
-        simpleContainer.setItem(49, this.namedItem(Items.PAPER, "Page " + (page + 1) + " / " + (maxPage + 1)));
-        simpleContainer.setItem(52, this.namedItem(Items.HOPPER, "Claim All Items"));
-        simpleContainer.setItem(53, this.namedItem(Items.ARROW, "Next Page"));
+        ItemStack prevItem = this.namedItem(Items.ARROW, "Previous Page");
+        ItemStack backItem = this.namedItem(Items.BARRIER, "Back");
+        ItemStack pageItem = this.namedItem(Items.PAPER, "Page " + (page + 1) + " / " + (maxPage + 1));
+        ItemStack claimItem = this.namedItem(Items.HOPPER, "Claim All Items");
+        ItemStack nextItem = this.namedItem(Items.ARROW, "Next Page");
 
-        return new ChestMenu(MenuType.GENERIC_9x6, containerId, inventory, simpleContainer, rows) {
-            private boolean skipRemovedSave;
+        Container storageContainer = new Container() {
+            @Override
+            public int getContainerSize() {
+                return rows * 9;
+            }
 
-            private void saveVisiblePage() {
+            @Override
+            public boolean isEmpty() {
                 for (int i = 0; i < STORAGE_PAGE_SIZE; i++) {
-                    SuperSpawnerBlockEntity.this.setItem(pageStart + i, simpleContainer.getItem(i));
+                    if (!SuperSpawnerBlockEntity.this.getItem(pageStart + i).isEmpty()) {
+                        return false;
+                    }
                 }
+                return true;
+            }
+
+            @Override
+            public ItemStack getItem(int slot) {
+                if (slot >= 0 && slot < STORAGE_PAGE_SIZE) {
+                    return SuperSpawnerBlockEntity.this.getItem(pageStart + slot);
+                }
+                if (slot == 45) return prevItem;
+                if (slot == 46) return backItem;
+                if (slot == 49) return pageItem;
+                if (slot == 52) return claimItem;
+                if (slot == 53) return nextItem;
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public ItemStack removeItem(int slot, int amount) {
+                if (slot >= 0 && slot < STORAGE_PAGE_SIZE) {
+                    return SuperSpawnerBlockEntity.this.removeItem(pageStart + slot, amount);
+                }
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public ItemStack removeItemNoUpdate(int slot) {
+                if (slot >= 0 && slot < STORAGE_PAGE_SIZE) {
+                    return SuperSpawnerBlockEntity.this.removeItemNoUpdate(pageStart + slot);
+                }
+                return ItemStack.EMPTY;
+            }
+
+            @Override
+            public void setItem(int slot, ItemStack stack) {
+                if (slot >= 0 && slot < STORAGE_PAGE_SIZE) {
+                    SuperSpawnerBlockEntity.this.setItem(pageStart + slot, stack);
+                }
+            }
+
+            @Override
+            public void setChanged() {
                 SuperSpawnerBlockEntity.this.setChanged();
             }
 
             @Override
+            public boolean stillValid(Player player) {
+                return SuperSpawnerBlockEntity.this.stillValid(player);
+            }
+
+            @Override
+            public void clearContent() {
+                for (int i = 0; i < STORAGE_PAGE_SIZE; i++) {
+                    SuperSpawnerBlockEntity.this.setItem(pageStart + i, ItemStack.EMPTY);
+                }
+            }
+
+            @Override
+            public boolean canPlaceItem(int slot, ItemStack stack) {
+                return slot >= 0 && slot < STORAGE_PAGE_SIZE;
+            }
+
+            @Override
+            public boolean canTakeItem(Container target, int slot, ItemStack stack) {
+                return slot >= 0 && slot < STORAGE_PAGE_SIZE;
+            }
+        };
+
+        return new ChestMenu(MenuType.GENERIC_9x6, containerId, inventory, storageContainer, rows) {
+            private boolean keepPageOnClose;
+
+            @Override
             public void removed(Player player) {
-                if (!this.skipRemovedSave) {
-                    this.saveVisiblePage();
+                if (!this.keepPageOnClose) {
                     SuperSpawnerBlockEntity.this.storagePageByPlayer.remove(player.getUUID());
                 }
                 super.removed(player);
@@ -346,27 +415,23 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             @Override
             public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player menuPlayer) {
                 if (slotId == 45 && page > 0) {
-                    this.saveVisiblePage();
+                    this.keepPageOnClose = true;
                     SuperSpawnerBlockEntity.this.storagePageByPlayer.put(menuPlayer.getUUID(), page - 1);
-                    this.skipRemovedSave = true;
                     menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> SuperSpawnerBlockEntity.this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                     return;
                 }
                 if (slotId == 53 && page < maxPage) {
-                    this.saveVisiblePage();
+                    this.keepPageOnClose = true;
                     SuperSpawnerBlockEntity.this.storagePageByPlayer.put(menuPlayer.getUUID(), page + 1);
-                    this.skipRemovedSave = true;
                     menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> SuperSpawnerBlockEntity.this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                     return;
                 }
                 if (slotId == 46) {
-                    this.saveVisiblePage();
-                    this.skipRemovedSave = true;
+                    this.keepPageOnClose = true;
                     menuPlayer.openMenu(SuperSpawnerBlockEntity.this);
                     return;
                 }
                 if (slotId == 52) {
-                    this.saveVisiblePage();
                     for (int i = 0; i < SuperSpawnerBlockEntity.this.storedItems.size(); i++) {
                         ItemStack storedItem = SuperSpawnerBlockEntity.this.storedItems.get(i);
                         if (!storedItem.isEmpty()) {
@@ -376,22 +441,42 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                     SuperSpawnerBlockEntity.this.storedItems.clear();
                     SuperSpawnerBlockEntity.this.normalizeStoredItems();
                     SuperSpawnerBlockEntity.this.setChanged();
-                    this.skipRemovedSave = true;
+                    this.keepPageOnClose = true;
                     menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> SuperSpawnerBlockEntity.this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                     return;
                 }
-                if (slotId == 49 || (slotId >= 45 && slotId <= 53)) {
+                if (slotId >= STORAGE_PAGE_SIZE && slotId < rows * 9) {
                     return;
                 }
                 super.clicked(slotId, button, input, menuPlayer);
             }
 
             @Override
-            public ItemStack quickMoveStack(Player player, int slot) {
-                if (slot >= 45 && slot <= 53) {
+            public ItemStack quickMoveStack(Player player, int slotIndex) {
+                if (slotIndex >= STORAGE_PAGE_SIZE && slotIndex < rows * 9) {
                     return ItemStack.EMPTY;
                 }
-                return super.quickMoveStack(player, slot);
+                Slot slot = this.slots.get(slotIndex);
+                if (slot != null && slot.hasItem()) {
+                    ItemStack itemStack = slot.getItem();
+                    ItemStack copy = itemStack.copy();
+                    if (slotIndex < rows * 9) {
+                        if (!this.moveItemStackTo(itemStack, rows * 9, this.slots.size(), true)) {
+                            return ItemStack.EMPTY;
+                        }
+                    } else {
+                        if (!this.moveItemStackTo(itemStack, 0, STORAGE_PAGE_SIZE, false)) {
+                            return ItemStack.EMPTY;
+                        }
+                    }
+                    if (itemStack.isEmpty()) {
+                        slot.setByPlayer(ItemStack.EMPTY);
+                    } else {
+                        slot.setChanged();
+                    }
+                    return copy;
+                }
+                return ItemStack.EMPTY;
             }
         };
     }
