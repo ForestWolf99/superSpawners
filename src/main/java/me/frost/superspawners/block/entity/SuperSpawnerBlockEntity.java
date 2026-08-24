@@ -50,6 +50,8 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     private static final String MOB_TYPE_KEY = "MobType";
     private static final int BASE_STORAGE = 54;
     private static final int BASE_INTERVAL_TICKS = 200;
+    private static final int MIN_INTERVAL_TICKS = 10;
+    public static final int MAX_SUGAR = 1805;
     private static final int STORAGE_PAGE_ROWS = 5;
     private static final int STORAGE_PAGE_SIZE = STORAGE_PAGE_ROWS * 9;
     private int tickCounter;
@@ -94,7 +96,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             loadedMobType = input.getStringOr("MobType", "minecraft:pig");
         }
         this.mobType = loadedMobType;
-        this.sugar = input.getIntOr("sugar", 0);
+        this.sugar = Math.min(MAX_SUGAR, Math.max(0, input.getIntOr("sugar", 0)));
         this.bonusSpawners = input.getIntOr("bonusSpawners", 0);
         this.storedXp = input.getIntOr("storedXp", 0);
         this.hasNetherStar = input.getBooleanOr("hasNetherStar", false);
@@ -156,6 +158,9 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         }
 
         if (heldStack.is(Items.SUGAR)) {
+            if (this.sugar >= MAX_SUGAR) {
+                return false;
+            }
             this.sugar++;
             if (consumeItem) {
                 heldStack.shrink(1);
@@ -482,7 +487,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     private void populateUpgradesMenu(SimpleContainer upgrades) {
-        upgrades.setItem(11, this.namedItem(Items.SUGAR, "Add Sugar (current: " + this.sugar + ")"));
+        upgrades.setItem(11, this.namedItem(Items.SUGAR, "Add Sugar (current: " + this.sugar + "/" + MAX_SUGAR + ")"));
         upgrades.setItem(12, this.namedItem(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM, "Add Matching Super Spawner (current: " + this.bonusSpawners + ")"));
         upgrades.setItem(13, this.namedItem(Items.NETHER_STAR, this.hasNetherStar ? "Nether Star: Applied" : "Apply Nether Star"));
         upgrades.setItem(14, this.namedItem(Items.TOTEM_OF_UNDYING, this.hasTotem ? "Totem: Applied" : "Apply Totem"));
@@ -542,7 +547,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 return;
             }
 
-            if (slot == 11 && this.consumeItem(menuPlayer, Items.SUGAR)) {
+            if (slot == 11 && this.sugar < MAX_SUGAR && this.consumeItem(menuPlayer, Items.SUGAR)) {
                 this.sugar++;
                 this.setChanged();
                 this.populateUpgradesMenu(upgrades);
@@ -577,7 +582,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         double intervalSeconds = intervalTicks / 20.0;
         stats.setItem(12, this.namedItem(
                 Items.SUGAR,
-                "Sugar: " + this.sugar,
+                "Sugar: " + this.sugar + "/" + MAX_SUGAR,
                 List.of(Component.literal(String.format(java.util.Locale.ROOT, "Spawn Interval: %d ticks / %.2fs", intervalTicks, intervalSeconds)).withStyle(ChatFormatting.GRAY))
         ));
         stats.setItem(13, this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + this.storedXp));
@@ -784,7 +789,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     private int getIntervalTicks() {
         double speedMultiplier = 1.0 + (this.sugar * 0.01);
         int interval = (int) Math.round(BASE_INTERVAL_TICKS / speedMultiplier);
-        return Math.max(10, interval);
+        return Math.max(MIN_INTERVAL_TICKS, interval);
     }
 
     private boolean canWork(ServerLevel level) {
