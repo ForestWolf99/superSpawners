@@ -283,7 +283,15 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     private AbstractContainerMenu createHomeMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory, Player player) {
         int rows = 3;
-        SimpleContainer home = new SimpleContainer(rows * 9);
+        SimpleContainer home = new SimpleContainer(rows * 9) {
+            @Override
+            public ItemStack getItem(int slot) {
+                if (slot == 4) {
+                    return SuperSpawnerBlockEntity.this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + SuperSpawnerBlockEntity.this.storedXp + " (click to collect)");
+                }
+                return super.getItem(slot);
+            }
+        };
 
         home.setItem(13, this.namedItem(this.getMobTypeSpawnEggItem(), "Home"));
         home.setItem(12, this.namedItem(Items.SPAWNER, "Stats"));
@@ -1004,7 +1012,15 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     private AbstractContainerMenu createStatsMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory) {
         int rows = 3;
-        SimpleContainer stats = new SimpleContainer(rows * 9);
+        SimpleContainer stats = new SimpleContainer(rows * 9) {
+            @Override
+            public ItemStack getItem(int slot) {
+                if (slot == 13) {
+                    return SuperSpawnerBlockEntity.this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + SuperSpawnerBlockEntity.this.storedXp);
+                }
+                return super.getItem(slot);
+            }
+        };
         stats.setItem(11, this.namedItem(Items.SPAWNER, "Mob: " + this.getMobType()));
         int intervalTicks = this.getIntervalTicks();
         double intervalSeconds = intervalTicks / 20.0;
