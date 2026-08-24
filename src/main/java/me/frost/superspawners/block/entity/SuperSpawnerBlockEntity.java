@@ -285,7 +285,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         home.setItem(22, this.namedItem(Items.CHEST, "Stored Items"));
         home.setItem(4, this.namedItem(Items.EXPERIENCE_BOTTLE, "Stored XP: " + this.storedXp + " (click to collect)"));
 
-        return this.createLockedMenu(containerId, inventory, home, rows, "Super Spawner - Home", (slot, menuPlayer) -> {
+        return this.createLockedMenu(containerId, inventory, home, rows, "Super Spawner - Home", (slot, button, menuPlayer) -> {
             if (slot == 22) {
                 menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createStorageMenu(id, inv, p), Component.literal("Super Spawner - Storage")));
                 return;
@@ -396,44 +396,90 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         };
     }
 
-    private AbstractContainerMenu createUpgradesMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory) {
-        int rows = 3;
-        SimpleContainer upgrades = new SimpleContainer(rows * 9);
-
+    private void populateUpgradesMenu(SimpleContainer upgrades) {
         upgrades.setItem(11, this.namedItem(Items.SUGAR, "Add Sugar (current: " + this.sugar + ")"));
         upgrades.setItem(12, this.namedItem(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM, "Add Matching Super Spawner (current: " + this.bonusSpawners + ")"));
         upgrades.setItem(13, this.namedItem(Items.NETHER_STAR, this.hasNetherStar ? "Nether Star: Applied" : "Apply Nether Star"));
         upgrades.setItem(14, this.namedItem(Items.TOTEM_OF_UNDYING, this.hasTotem ? "Totem: Applied" : "Apply Totem"));
         upgrades.setItem(26, this.namedItem(Items.BARRIER, "Back"));
+    }
 
-        return this.createLockedMenu(containerId, inventory, upgrades, rows, "Super Spawner - Upgrades", (slot, menuPlayer) -> {
+    @FunctionalInterface
+    private interface LockedMenuClickHandler {
+        void handle(int slot, int button, Player player);
+    }
+
+    private AbstractContainerMenu createUpgradesMenu(int containerId, net.minecraft.world.entity.player.Inventory inventory) {
+        int rows = 3;
+        SimpleContainer upgrades = new SimpleContainer(rows * 9);
+        this.populateUpgradesMenu(upgrades);
+
+        return this.createLockedMenu(containerId, inventory, upgrades, rows, "Super Spawner - Upgrades", (slot, button, menuPlayer) -> {
             if (slot == 26) {
                 menuPlayer.openMenu(this);
                 return;
             }
+
+            if (button == 1) {
+                if (slot == 11) {
+                    if (this.sugar > 0 && this.tryReturnUpgradeItem(menuPlayer, new ItemStack(Items.SUGAR))) {
+                        this.sugar--;
+                        this.setChanged();
+                        this.populateUpgradesMenu(upgrades);
+                    }
+                    return;
+                }
+                if (slot == 12) {
+                    if (this.bonusSpawners > 0 && this.tryReturnUpgradeItem(menuPlayer, this.createDroppedSpawnerStack())) {
+                        this.bonusSpawners--;
+                        this.normalizeStoredItems();
+                        this.setChanged();
+                        this.populateUpgradesMenu(upgrades);
+                    }
+                    return;
+                }
+                if (slot == 13) {
+                    if (this.hasNetherStar && this.tryReturnUpgradeItem(menuPlayer, new ItemStack(Items.NETHER_STAR))) {
+                        this.hasNetherStar = false;
+                        this.setChanged();
+                        this.populateUpgradesMenu(upgrades);
+                    }
+                    return;
+                }
+                if (slot == 14) {
+                    if (this.hasTotem && this.tryReturnUpgradeItem(menuPlayer, new ItemStack(Items.TOTEM_OF_UNDYING))) {
+                        this.hasTotem = false;
+                        this.setChanged();
+                        this.populateUpgradesMenu(upgrades);
+                    }
+                    return;
+                }
+                return;
+            }
+
             if (slot == 11 && this.consumeItem(menuPlayer, Items.SUGAR)) {
                 this.sugar++;
                 this.setChanged();
-                menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createUpgradesMenu(id, inv), Component.literal("Super Spawner - Upgrades")));
+                this.populateUpgradesMenu(upgrades);
                 return;
             }
             if (slot == 12 && this.consumeMatchingSpawner(menuPlayer)) {
                 this.bonusSpawners++;
                 this.normalizeStoredItems();
                 this.setChanged();
-                menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createUpgradesMenu(id, inv), Component.literal("Super Spawner - Upgrades")));
+                this.populateUpgradesMenu(upgrades);
                 return;
             }
             if (slot == 13 && !this.hasNetherStar && this.consumeItem(menuPlayer, Items.NETHER_STAR)) {
                 this.hasNetherStar = true;
                 this.setChanged();
-                menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createUpgradesMenu(id, inv), Component.literal("Super Spawner - Upgrades")));
+                this.populateUpgradesMenu(upgrades);
                 return;
             }
             if (slot == 14 && !this.hasTotem && this.consumeItem(menuPlayer, Items.TOTEM_OF_UNDYING)) {
                 this.hasTotem = true;
                 this.setChanged();
-                menuPlayer.openMenu(new SimpleMenuProvider((id, inv, p) -> this.createUpgradesMenu(id, inv), Component.literal("Super Spawner - Upgrades")));
+                this.populateUpgradesMenu(upgrades);
             }
         });
     }
@@ -449,7 +495,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         stats.setItem(16, this.namedItem(Items.TOTEM_OF_UNDYING, "Totem: " + (this.hasTotem ? "Yes" : "No")));
         stats.setItem(26, this.namedItem(Items.BARRIER, "Back"));
 
-        return this.createLockedMenu(containerId, inventory, stats, rows, "Super Spawner - Stats", (slot, menuPlayer) -> {
+        return this.createLockedMenu(containerId, inventory, stats, rows, "Super Spawner - Stats", (slot, button, menuPlayer) -> {
             if (slot == 26) {
                 menuPlayer.openMenu(this);
             }
@@ -462,18 +508,48 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             SimpleContainer container,
             int rows,
             String title,
-            java.util.function.BiConsumer<Integer, Player> slotClick
+            LockedMenuClickHandler slotClick
     ) {
         return new ChestMenu(MenuType.GENERIC_9x3, containerId, inventory, container, rows) {
             @Override
             public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player player) {
                 if (slotId >= 0 && slotId < rows * 9) {
-                    slotClick.accept(slotId, player);
+                    slotClick.handle(slotId, button, player);
                     return;
                 }
                 super.clicked(slotId, button, input, player);
             }
         };
+    }
+
+    private boolean tryReturnUpgradeItem(Player player, ItemStack stack) {
+        if (!this.hasInventorySpace(player, stack)) {
+            player.sendSystemMessage(Component.literal("Your inventory is full!").withStyle(ChatFormatting.RED));
+            return false;
+        }
+        player.getInventory().add(stack.copy());
+        return true;
+    }
+
+    private boolean hasInventorySpace(Player player, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return true;
+        }
+        int needed = stack.getCount();
+        for (int i = 0; i < 36; i++) {
+            ItemStack existing = player.getInventory().getItem(i);
+            if (existing.isEmpty()) {
+                return true;
+            }
+            if (ItemStack.isSameItemSameComponents(existing, stack)) {
+                int room = existing.getMaxStackSize() - existing.getCount();
+                if (room >= needed) {
+                    return true;
+                }
+                needed -= room;
+            }
+        }
+        return needed <= 0;
     }
 
     private ItemStack namedItem(Item item, String name) {
