@@ -2,14 +2,15 @@ package me.frost.superspawners.block.entity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.Identifier;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -20,8 +21,6 @@ import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.Container;
 import net.minecraft.world.MenuProvider;
@@ -29,9 +28,8 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.item.component.CustomData;
-import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.storage.loot.LootTable;
 import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
@@ -70,11 +68,11 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     @Override
-    protected void saveAdditional(ValueOutput output) {
-        List<ItemStack> serializableItems = new ArrayList<>();
+    protected void saveAdditional(CompoundTag output) {
+        ListTag serializableItems = new ListTag();
         for (ItemStack stack : this.storedItems) {
             if (!stack.isEmpty()) {
-                serializableItems.add(stack.copy());
+                serializableItems.add(stack.save(new CompoundTag()));
             }
         }
         output.putInt("tickCounter", this.tickCounter);
@@ -84,53 +82,52 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         output.putInt("storedXp", this.storedXp);
         output.putBoolean("hasNetherStar", this.hasNetherStar);
         output.putBoolean("hasTotem", this.hasTotem);
-        output.store("storedItems", ItemStack.OPTIONAL_CODEC.listOf(), serializableItems);
+        output.put("storedItems", serializableItems);
         super.saveAdditional(output);
     }
 
     @Override
-    protected void loadAdditional(ValueInput input) {
-        super.loadAdditional(input);
-        this.tickCounter = input.getIntOr("tickCounter", 0);
-        String loadedMobType = input.getStringOr("mobType", "");
+    public void load(CompoundTag input) {
+        super.load(input);
+        this.tickCounter = input.getInt("tickCounter");
+        String loadedMobType = input.getString("mobType");
         if (loadedMobType.isBlank()) {
-            loadedMobType = input.getStringOr("MobType", "minecraft:pig");
+            loadedMobType = input.contains("MobType", Tag.TAG_STRING) ? input.getString("MobType") : "minecraft:pig";
         }
         this.mobType = loadedMobType;
-        this.sugar = Math.min(MAX_SUGAR, Math.max(0, input.getIntOr("sugar", 0)));
-        this.bonusSpawners = input.getIntOr("bonusSpawners", 0);
-        this.storedXp = input.getIntOr("storedXp", 0);
-        this.hasNetherStar = input.getBooleanOr("hasNetherStar", false);
-        this.hasTotem = input.getBooleanOr("hasTotem", false);
-        this.storedItems = new ArrayList<>(input.read("storedItems", ItemStack.OPTIONAL_CODEC.listOf())
-                .or(() -> input.read("storedItems", ItemStack.CODEC.listOf()))
-                .orElse(List.of()));
+        this.sugar = Math.min(MAX_SUGAR, Math.max(0, input.getInt("sugar")));
+        this.bonusSpawners = input.getInt("bonusSpawners");
+        this.storedXp = input.getInt("storedXp");
+        this.hasNetherStar = input.getBoolean("hasNetherStar");
+        this.hasTotem = input.getBoolean("hasTotem");
+        this.storedItems = new ArrayList<>();
+        ListTag storedItemsTag = input.getList("storedItems", Tag.TAG_COMPOUND);
+        for (int index = 0; index < storedItemsTag.size(); index++) {
+            this.storedItems.add(ItemStack.of(storedItemsTag.getCompound(index)));
+        }
         this.normalizeStoredItems();
     }
 
-    public static Optional<Identifier> readMobTypeFromItem(ItemStack stack) {
-        CustomData customData = stack.get(DataComponents.CUSTOM_DATA);
-        if (customData == null) {
+    public static Optional<ResourceLocation> readMobTypeFromItem(ItemStack stack) {
+        CompoundTag tag = stack.getTag();
+        if (tag == null) {
             return Optional.empty();
         }
-        CompoundTag tag = customData.copyTag();
-        Optional<String> mobTypeString = tag.getString(MOB_TYPE_KEY);
-        if (mobTypeString.isEmpty()) {
+        String mobTypeString = tag.getString(MOB_TYPE_KEY);
+        if (mobTypeString.isBlank()) {
             mobTypeString = tag.getString("mobType");
         }
-        return mobTypeString
-                .map(Identifier::tryParse)
-                .filter(id -> id != null);
+        return Optional.ofNullable(ResourceLocation.tryParse(mobTypeString));
     }
 
-    public void setMobType(Identifier mobType) {
+    public void setMobType(ResourceLocation mobType) {
         this.mobType = mobType.toString();
         this.setChanged();
     }
 
-    public Identifier getMobType() {
-        Identifier parsed = Identifier.tryParse(this.mobType);
-        return parsed != null ? parsed : Identifier.fromNamespaceAndPath("minecraft", "pig");
+    public ResourceLocation getMobType() {
+        ResourceLocation parsed = ResourceLocation.tryParse(this.mobType);
+        return parsed != null ? parsed : new ResourceLocation("minecraft", "pig");
     }
 
     public int getSugar() {
@@ -189,7 +186,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         }
 
         if (heldStack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
-            Optional<Identifier> incoming = readMobTypeFromItem(heldStack);
+            Optional<ResourceLocation> incoming = readMobTypeFromItem(heldStack);
             if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
                 this.bonusSpawners++;
                 if (consumeItem) {
@@ -304,7 +301,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         if (this.sugar > 0) {
             int remainingSugar = this.sugar;
             while (remainingSugar > 0) {
-                ItemStack sugarStack = new ItemStack(Items.SUGAR, Math.min(Items.SUGAR.getDefaultMaxStackSize(), remainingSugar));
+                ItemStack sugarStack = new ItemStack(Items.SUGAR, Math.min(Items.SUGAR.getMaxStackSize(), remainingSugar));
                 net.minecraft.world.level.block.Block.popResource(level, pos, sugarStack);
                 remainingSugar -= sugarStack.getCount();
             }
@@ -477,7 +474,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             }
 
             @Override
-            public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player menuPlayer) {
+            public void clicked(int slotId, int button, ClickType input, Player menuPlayer) {
                 if (slotId == 45 && page > 0) {
                     this.keepPageOnClose = true;
                     SuperSpawnerBlockEntity.this.storagePageByPlayer.put(menuPlayer.getUUID(), page - 1);
@@ -570,7 +567,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     @FunctionalInterface
     private interface LockedMenuClickHandler {
-        void handle(int slot, int button, net.minecraft.world.inventory.ContainerInput input, Player player);
+        void handle(int slot, int button, ClickType input, Player player);
     }
 
     private String getUpgradeDisplayName(UpgradeType type) {
@@ -614,7 +611,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 case TOTEM -> stack = new ItemStack(Items.TOTEM_OF_UNDYING);
                 default -> stack = new ItemStack(Items.PAPER);
             }
-            stack.set(DataComponents.CUSTOM_NAME, Component.literal("1"));
+            stack.setHoverName(Component.literal("1"));
             return stack;
         }
 
@@ -686,13 +683,12 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                         int actual = Math.min(amount, maxPossible);
                         if (actual > 0) {
                             ItemStack res = SuperSpawnerBlockEntity.this.createDroppedSpawnerStack();
-                            res.set(DataComponents.CUSTOM_NAME, Component.literal("Click to Add " + actual + " Super Spawner" + (actual > 1 ? "s" : "")));
-                            res.set(DataComponents.LORE, new ItemLore(List.of(
+                            SuperSpawnerBlockEntity.this.setDisplayData(res, Component.literal("Click to Add " + actual + " Super Spawner" + (actual > 1 ? "s" : "")), List.of(
                                     Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
                                     Component.literal("Current bonus: " + SuperSpawnerBlockEntity.this.bonusSpawners).withStyle(ChatFormatting.GRAY),
                                     Component.literal("In Inventory: " + inInv).withStyle(ChatFormatting.GRAY),
                                     Component.literal("Will add: " + actual).withStyle(ChatFormatting.GREEN)
-                            )));
+                            ));
                             this.resultSlots.setItem(0, res);
                         } else {
                             ItemStack error = namedItem(Items.BARRIER, "Cannot Add Super Spawners", List.of(
@@ -767,13 +763,12 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                         int actual = Math.min(amount, maxPossible);
                         if (actual > 0) {
                             ItemStack res = spawnerStack.copy();
-                            res.set(DataComponents.CUSTOM_NAME, Component.literal("Click to Remove " + actual + " Super Spawner" + (actual > 1 ? "s" : "")));
-                            res.set(DataComponents.LORE, new ItemLore(List.of(
+                            SuperSpawnerBlockEntity.this.setDisplayData(res, Component.literal("Click to Remove " + actual + " Super Spawner" + (actual > 1 ? "s" : "")), List.of(
                                     Component.literal("Requested: " + amount).withStyle(ChatFormatting.GRAY),
                                     Component.literal("Current bonus: " + current).withStyle(ChatFormatting.GRAY),
                                     Component.literal("Inventory Empty Slots: " + space).withStyle(ChatFormatting.GRAY),
                                     Component.literal("Will remove: " + actual).withStyle(ChatFormatting.GREEN)
-                            )));
+                            ));
                             this.resultSlots.setItem(0, res);
                         } else {
                             String reason = (current <= 0) ? "Spawner has no bonus spawners installed" : "Your inventory has no empty slots";
@@ -926,7 +921,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         }
 
         @Override
-        public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player player) {
+        public void clicked(int slotId, int button, ClickType input, Player player) {
             if (slotId == 0 || slotId == 1) {
                 return;
             }
@@ -934,7 +929,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 this.confirmAction(player);
                 return;
             }
-            if (slotId >= 3 && input == net.minecraft.world.inventory.ContainerInput.QUICK_MOVE) {
+            if (slotId >= 3 && input == ClickType.QUICK_MOVE) {
                 return;
             }
             super.clicked(slotId, button, input, player);
@@ -968,7 +963,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 return;
             }
 
-            if (input == net.minecraft.world.inventory.ContainerInput.QUICK_MOVE) {
+            if (input == ClickType.QUICK_MOVE) {
                 boolean isAdd = (button == 0);
                 if (slot == 11) {
                     this.openUpgradeAnvilMenu(menuPlayer, UpgradeType.SUGAR, isAdd);
@@ -1095,7 +1090,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     ) {
         return new ChestMenu(MenuType.GENERIC_9x3, containerId, inventory, container, rows) {
             @Override
-            public void clicked(int slotId, int button, net.minecraft.world.inventory.ContainerInput input, Player player) {
+            public void clicked(int slotId, int button, ClickType input, Player player) {
                 if (slotId >= 0 && slotId < rows * 9) {
                     slotClick.handle(slotId, button, input, player);
                     return;
@@ -1119,7 +1114,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             ItemStack existing = player.getInventory().getItem(i);
             if (existing.isEmpty()) {
                 space += maxStackSize;
-            } else if (ItemStack.isSameItemSameComponents(existing, stack)) {
+            } else if (ItemStack.isSameItemSameTags(existing, stack)) {
                 space += Math.max(0, maxStackSize - existing.getCount());
             }
         }
@@ -1166,7 +1161,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             if (!stack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
                 continue;
             }
-            Optional<Identifier> incoming = readMobTypeFromItem(stack);
+            Optional<ResourceLocation> incoming = readMobTypeFromItem(stack);
             if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
                 count += stack.getCount();
             }
@@ -1206,7 +1201,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             if (!stack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
                 continue;
             }
-            Optional<Identifier> incoming = readMobTypeFromItem(stack);
+            Optional<ResourceLocation> incoming = readMobTypeFromItem(stack);
             if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
                 int toTake = Math.min(remaining, stack.getCount());
                 stack.shrink(toTake);
@@ -1222,28 +1217,35 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     private ItemStack namedItem(Item item, String name, List<Component> lore) {
         ItemStack stack = new ItemStack(item);
-        stack.set(DataComponents.CUSTOM_NAME, Component.literal(name));
-        if (lore != null && !lore.isEmpty()) {
-            stack.set(DataComponents.LORE, new ItemLore(lore));
-        }
+        this.setDisplayData(stack, Component.literal(name), lore);
         return stack;
     }
 
+    private void setDisplayData(ItemStack stack, Component name, List<Component> lore) {
+        stack.setHoverName(name);
+        if (lore != null && !lore.isEmpty()) {
+            ListTag loreTag = new ListTag();
+            for (Component line : lore) {
+                loreTag.add(StringTag.valueOf(Component.Serializer.toJson(line)));
+            }
+            stack.getOrCreateTagElement("display").put("Lore", loreTag);
+        }
+    }
+
     private Item getMobTypeSpawnEggItem() {
-        Optional<Holder.Reference<EntityType<?>>> typeRef = BuiltInRegistries.ENTITY_TYPE.get(this.getMobType());
-        if (typeRef.isEmpty()) {
+        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.get(this.getMobType());
+        if (entityType == null) {
             return Items.CREEPER_SPAWN_EGG;
         }
-        return net.minecraft.world.item.SpawnEggItem.byId(typeRef.get().value())
-                .map(Holder::value)
-                .orElse(Items.CREEPER_SPAWN_EGG);
+        net.minecraft.world.item.SpawnEggItem spawnEgg = net.minecraft.world.item.SpawnEggItem.byId(entityType);
+        return spawnEgg != null ? spawnEgg : Items.CREEPER_SPAWN_EGG;
     }
 
     private ItemStack namedPlayerHead(Player player, String name) {
         ItemStack stack = this.namedItem(Items.PLAYER_HEAD, name);
         CompoundTag tag = new CompoundTag();
-        tag.putString("SkullOwner", player.getGameProfile().name());
-        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+        tag.putString("SkullOwner", player.getGameProfile().getName());
+        stack.getOrCreateTag().put("SkullOwner", tag.get("SkullOwner"));
         return stack;
     }
 
@@ -1266,7 +1268,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             if (!stack.is(me.frost.superspawners.Superspawners.SUPER_SPAWNER_ITEM)) {
                 continue;
             }
-            Optional<Identifier> incoming = readMobTypeFromItem(stack);
+            Optional<ResourceLocation> incoming = readMobTypeFromItem(stack);
             if (incoming.isPresent() && incoming.get().equals(this.getMobType())) {
                 if (!player.getAbilities().instabuild) {
                     stack.shrink(1);
@@ -1388,7 +1390,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 this.storedItems.set(i, stack.copy());
                 return;
             }
-            if (ItemStack.isSameItemSameComponents(existing, stack) && existing.getCount() < existing.getMaxStackSize()) {
+            if (ItemStack.isSameItemSameTags(existing, stack) && existing.getCount() < existing.getMaxStackSize()) {
                 int move = Math.min(stack.getCount(), existing.getMaxStackSize() - existing.getCount());
                 existing.grow(move);
                 stack.shrink(move);
@@ -1400,14 +1402,13 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     }
 
     private void runSimulation(ServerLevel level) {
-        Identifier mobId = this.getMobType();
-        Optional<Holder.Reference<EntityType<?>>> typeRef = BuiltInRegistries.ENTITY_TYPE.get(mobId);
-        if (typeRef.isEmpty()) {
+        ResourceLocation mobId = this.getMobType();
+        EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(mobId);
+        if (type == null) {
             return;
         }
 
-        EntityType<?> type = typeRef.get().value();
-        Entity entity = type.create(level, EntitySpawnReason.SPAWNER);
+        Entity entity = type.create(level);
         if (entity == null) {
             return;
         }
@@ -1432,11 +1433,8 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             if (!(entity instanceof LivingEntity livingEntity)) {
                 continue;
             }
-            Optional<net.minecraft.resources.ResourceKey<LootTable>> lootTableKey = livingEntity.getLootTable();
-            if (lootTableKey.isEmpty()) {
-                continue;
-            }
-            LootTable table = level.getServer().reloadableRegistries().getLootTable(lootTableKey.get());
+            ResourceLocation lootTableKey = livingEntity.getLootTable();
+            LootTable table = level.getServer().getLootData().getLootTable(lootTableKey);
             List<ItemStack> drops = table.getRandomItems(params, random.nextLong());
             for (ItemStack drop : drops) {
                 this.addDrop(drop.copy());
@@ -1446,18 +1444,18 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         this.setChanged();
     }
 
-    public static void writeMobTypeToItem(ItemStack stack, Identifier mobType) {
-        CompoundTag tag = new CompoundTag();
-        tag.putString(MOB_TYPE_KEY, mobType.toString());
-        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
-        stack.set(DataComponents.LORE, new ItemLore(List.of(buildMobLoreLine(mobType))));
+    public static void writeMobTypeToItem(ItemStack stack, ResourceLocation mobType) {
+        stack.getOrCreateTag().putString(MOB_TYPE_KEY, mobType.toString());
+        ListTag lore = new ListTag();
+        lore.add(StringTag.valueOf(Component.Serializer.toJson(buildMobLoreLine(mobType))));
+        stack.getOrCreateTagElement("display").put("Lore", lore);
     }
 
-    private static Component buildMobLoreLine(Identifier mobType) {
-        Optional<Holder.Reference<EntityType<?>>> entityType = BuiltInRegistries.ENTITY_TYPE.get(mobType);
-        Component entityName = entityType
-                .map(reference -> reference.value().getDescription())
-                .orElse(Component.literal(mobType.toString()));
+    private static Component buildMobLoreLine(ResourceLocation mobType) {
+        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.get(mobType);
+        Component entityName = entityType != null
+            ? entityType.getDescription()
+            : Component.literal(mobType.toString());
         return Component.literal("Entity: ").append(entityName).withStyle(ChatFormatting.GRAY);
     }
 

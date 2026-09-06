@@ -1,6 +1,6 @@
 package me.frost.superspawners;
 
-import eu.pb4.polymer.core.api.item.PolymerCreativeModeTabUtils;
+import eu.pb4.polymer.core.api.item.PolymerItemGroupUtils;
 import eu.pb4.polymer.core.api.block.PolymerBlockUtils;
 import eu.pb4.polymer.resourcepack.api.PolymerResourcePackUtils;
 import me.frost.superspawners.block.SuperSpawnerBlock;
@@ -13,12 +13,9 @@ import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityT
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.EnchantmentTags;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
@@ -27,6 +24,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -41,14 +39,13 @@ import java.util.Optional;
 
 public class Superspawners implements ModInitializer {
     public static final String MOD_ID = "superspawners";
-    private static final Identifier SUPER_SPAWNER_ID = Identifier.fromNamespaceAndPath(MOD_ID, "superspawner");
+    private static final ResourceLocation SUPER_SPAWNER_ID = new ResourceLocation(MOD_ID, "superspawner");
 
     public static final Block SUPER_SPAWNER_BLOCK = Registry.register(
             BuiltInRegistries.BLOCK,
             SUPER_SPAWNER_ID,
             new SuperSpawnerBlock(
                     BlockBehaviour.Properties.of()
-                            .setId(ResourceKey.create(Registries.BLOCK, SUPER_SPAWNER_ID))
                             .strength(5.0F)
                             .noOcclusion()
             )
@@ -59,17 +56,17 @@ public class Superspawners implements ModInitializer {
             SUPER_SPAWNER_ID,
             new SuperSpawnerItem(
                     SUPER_SPAWNER_BLOCK,
-                    new Item.Properties().setId(ResourceKey.create(Registries.ITEM, SUPER_SPAWNER_ID))
+                    new Item.Properties()
             )
     );
 
     public static final BlockEntityType<SuperSpawnerBlockEntity> SUPER_SPAWNER_BLOCK_ENTITY = Registry.register(
             BuiltInRegistries.BLOCK_ENTITY_TYPE,
-            Identifier.fromNamespaceAndPath(MOD_ID, "superspawner"),
+            new ResourceLocation(MOD_ID, "superspawner"),
             FabricBlockEntityTypeBuilder.create(SuperSpawnerBlockEntity::new, SUPER_SPAWNER_BLOCK).build()
     );
 
-    public static final Identifier POLYMER_TAB_ID = Identifier.fromNamespaceAndPath(MOD_ID, "spawners");
+    public static final ResourceLocation POLYMER_TAB_ID = new ResourceLocation(MOD_ID, "spawners");
 
     @Override
     public void onInitialize() {
@@ -131,18 +128,13 @@ public class Superspawners implements ModInitializer {
         }
 
         ItemStack drop = new ItemStack(SUPER_SPAWNER_ITEM);
-        CompoundTag blockEntityData = blockEntity.saveWithoutMetadata(serverLevel.registryAccess());
+        CompoundTag blockEntityData = blockEntity.saveWithoutMetadata();
         if (blockEntityData.contains("SpawnData")) {
-            Optional<CompoundTag> spawnData = blockEntityData.getCompound("SpawnData");
-            spawnData.ifPresent(data -> data.getCompound("entity").ifPresent(entityTag -> {
-                Optional<String> id = entityTag.getString("id");
-                id.ifPresent(rawId -> {
-                    Identifier parsed = Identifier.tryParse(rawId);
-                    if (parsed != null) {
-                        SuperSpawnerBlockEntity.writeMobTypeToItem(drop, parsed);
-                    }
-                });
-            }));
+            CompoundTag entityTag = blockEntityData.getCompound("SpawnData").getCompound("entity");
+            ResourceLocation parsed = ResourceLocation.tryParse(entityTag.getString("id"));
+            if (parsed != null) {
+                SuperSpawnerBlockEntity.writeMobTypeToItem(drop, parsed);
+            }
         }
 
         Block.popResource(world, blockPos, drop);
@@ -151,38 +143,38 @@ public class Superspawners implements ModInitializer {
     }
 
     private boolean hasSilkTouch(ItemStack stack) {
-        return EnchantmentHelper.hasTag(stack, EnchantmentTags.PREVENTS_BEE_SPAWNS_WHEN_MINING);
+        return EnchantmentHelper.getItemEnchantmentLevel(Enchantments.SILK_TOUCH, stack) > 0;
     }
 
     private static void registerPolymerTab() {
-        CreativeModeTab tab = PolymerCreativeModeTabUtils.builder()
+        CreativeModeTab tab = net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup.builder()
                 .title(net.minecraft.network.chat.Component.literal("Super Spawners"))
                 .icon(() -> new ItemStack(SUPER_SPAWNER_ITEM))
                 .displayItems((params, output) -> {
-                    List<Identifier> eggIds = new ArrayList<>();
+                    List<ResourceLocation> eggIds = new ArrayList<>();
                     for (Item item : BuiltInRegistries.ITEM) {
                         if (item instanceof SpawnEggItem) {
-                            Identifier id = BuiltInRegistries.ITEM.getKey(item);
+                            ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
                             if (id != null) {
                                 eggIds.add(id);
                             }
                         }
                     }
-                    eggIds.sort(Comparator.comparing(Identifier::toString));
+                    eggIds.sort(Comparator.comparing(ResourceLocation::toString));
 
-                    for (Identifier eggId : eggIds) {
+                    for (ResourceLocation eggId : eggIds) {
                         if (!eggId.getPath().endsWith("_spawn_egg")) {
                             continue;
                         }
                         String entityPath = eggId.getPath().substring(0, eggId.getPath().length() - "_spawn_egg".length());
-                        Identifier entityId = Identifier.fromNamespaceAndPath(eggId.getNamespace(), entityPath);
+                        ResourceLocation entityId = new ResourceLocation(eggId.getNamespace(), entityPath);
                         ItemStack spawnerStack = new ItemStack(SUPER_SPAWNER_ITEM);
                         SuperSpawnerBlockEntity.writeMobTypeToItem(spawnerStack, entityId);
-                        output.accept(spawnerStack, CreativeModeTab.TabVisibility.PARENT_AND_SEARCH_TABS);
+                        output.accept(spawnerStack);
                     }
                 })
                 .build();
 
-        PolymerCreativeModeTabUtils.registerPolymerCreativeModeTab(POLYMER_TAB_ID, tab);
+        PolymerItemGroupUtils.registerPolymerItemGroup(POLYMER_TAB_ID, tab);
     }
 }

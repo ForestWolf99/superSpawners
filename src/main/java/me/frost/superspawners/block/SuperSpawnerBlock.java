@@ -2,8 +2,8 @@ package me.frost.superspawners.block;
 
 import eu.pb4.polymer.core.api.block.PolymerBlock;
 import me.frost.superspawners.block.entity.SuperSpawnerBlockEntity;
-import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -25,6 +25,11 @@ public class SuperSpawnerBlock extends Block implements EntityBlock, PolymerBloc
     }
 
     @Override
+    public Block getPolymerBlock(BlockState state) {
+        return Blocks.SPAWNER;
+    }
+
+    @Override
     public RenderShape getRenderShape(BlockState blockState) {
         return RenderShape.MODEL;
     }
@@ -35,7 +40,7 @@ public class SuperSpawnerBlock extends Block implements EntityBlock, PolymerBloc
     }
 
     @Override
-    public BlockState getPolymerBlockState(BlockState state, PacketContext context) {
+    public BlockState getPolymerBlockState(BlockState state, ServerPlayer player) {
         return Blocks.SPAWNER.defaultBlockState();
     }
 
