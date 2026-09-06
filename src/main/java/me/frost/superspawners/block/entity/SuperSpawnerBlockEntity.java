@@ -1,6 +1,7 @@
 package me.frost.superspawners.block.entity;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -26,6 +27,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.ItemStack;
@@ -44,7 +46,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider, Container {
+public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider, WorldlyContainer {
     private static final String MOB_TYPE_KEY = "MobType";
     private static final int BASE_STORAGE = 54;
     private static final int BASE_INTERVAL_TICKS = 200;
@@ -59,6 +61,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     private int storedXp;
     private boolean hasNetherStar;
     private boolean hasTotem;
+    private boolean inventoryInteractivityEnabled;
     private long lastWarningGameTime = -100L;
     private List<ItemStack> storedItems = new ArrayList<>();
     private final Map<UUID, Integer> storagePageByPlayer = new HashMap<>();
@@ -82,6 +85,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         output.putInt("storedXp", this.storedXp);
         output.putBoolean("hasNetherStar", this.hasNetherStar);
         output.putBoolean("hasTotem", this.hasTotem);
+        output.putBoolean("inventoryInteractivityEnabled", this.inventoryInteractivityEnabled);
         output.put("storedItems", serializableItems);
         super.saveAdditional(output);
     }
@@ -100,6 +104,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         this.storedXp = input.getInt("storedXp");
         this.hasNetherStar = input.getBoolean("hasNetherStar");
         this.hasTotem = input.getBoolean("hasTotem");
+        this.inventoryInteractivityEnabled = input.getBoolean("inventoryInteractivityEnabled");
         this.storedItems = new ArrayList<>();
         ListTag storedItemsTag = input.getList("storedItems", Tag.TAG_COMPOUND);
         for (int index = 0; index < storedItemsTag.size(); index++) {
@@ -148,6 +153,10 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     public boolean hasTotemUpgrade() {
         return this.hasTotem;
+    }
+
+    public boolean isInventoryInteractivityEnabled() {
+        return this.inventoryInteractivityEnabled;
     }
 
     public boolean tryApplyUpgradeOrSpawner(ItemStack heldStack, Player player, boolean consumeItem) {
@@ -1059,6 +1068,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
                 return super.getItem(slot);
             }
         };
+        stats.setItem(10, this.createInventoryInteractivityToggleItem());
         stats.setItem(11, this.namedItem(Items.SPAWNER, "Mob: " + this.getMobType()));
         int intervalTicks = this.getIntervalTicks();
         double intervalSeconds = intervalTicks / 20.0;
@@ -1076,8 +1086,22 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         return this.createLockedMenu(containerId, inventory, stats, rows, "Super Spawner - Stats", (slot, button, input, menuPlayer) -> {
             if (slot == 26) {
                 menuPlayer.openMenu(this);
+                return;
+            }
+            if (slot == 10) {
+                this.inventoryInteractivityEnabled = !this.inventoryInteractivityEnabled;
+                this.setChanged();
+                stats.setItem(10, this.createInventoryInteractivityToggleItem());
             }
         });
+    }
+
+    private ItemStack createInventoryInteractivityToggleItem() {
+        String state = this.inventoryInteractivityEnabled ? "Enabled" : "Disabled";
+        return this.namedItem(Items.HOPPER, "Inventory Interactivity: " + state, List.of(
+                Component.literal("Allows hoppers and other inventories to extract stored drops").withStyle(ChatFormatting.GRAY),
+                Component.literal("Click to toggle").withStyle(ChatFormatting.YELLOW)
+        ));
     }
 
     private AbstractContainerMenu createLockedMenu(
@@ -1350,6 +1374,29 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         this.storedItems.clear();
         this.normalizeStoredItems();
         this.setChanged();
+    }
+
+    @Override
+    public int[] getSlotsForFace(Direction direction) {
+        if (!this.inventoryInteractivityEnabled) {
+            return new int[0];
+        }
+        this.normalizeStoredItems();
+        int[] slots = new int[this.storedItems.size()];
+        for (int index = 0; index < slots.length; index++) {
+            slots[index] = index;
+        }
+        return slots;
+    }
+
+    @Override
+    public boolean canPlaceItemThroughFace(int slot, ItemStack stack, @org.jetbrains.annotations.Nullable Direction direction) {
+        return false;
+    }
+
+    @Override
+    public boolean canTakeItemThroughFace(int slot, ItemStack stack, Direction direction) {
+        return this.inventoryInteractivityEnabled;
     }
 
     private int getStorageSlots() {
