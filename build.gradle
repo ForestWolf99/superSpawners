@@ -23,6 +23,10 @@ loom {
 
 repositories {
     maven {
+        name = "MinecraftForge"
+        url = "https://maven.minecraftforge.net"
+    }
+    maven {
         name = "Patbox"
         url = "https://maven.nucleoid.xyz"
     }
@@ -36,6 +40,9 @@ dependencies {
 
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     modImplementation "eu.pb4:polymer-bundled:0.5.15+1.20.1"
+    compileOnly("net.minecraftforge:forge:1.20.1-47.4.20:universal") {
+        transitive = false
+    }
 }
 
 processResources {
