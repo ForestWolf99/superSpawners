@@ -64,6 +64,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     private boolean inventoryInteractivityEnabled;
     private long lastWarningGameTime = -100L;
     private List<ItemStack> storedItems = new ArrayList<>();
+    private int[] extractableSlots;
     private final Map<UUID, Integer> storagePageByPlayer = new HashMap<>();
 
     public SuperSpawnerBlockEntity(BlockPos pos, BlockState blockState) {
@@ -106,6 +107,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         this.hasTotem = input.getBoolean("hasTotem");
         this.inventoryInteractivityEnabled = input.getBoolean("inventoryInteractivityEnabled");
         this.storedItems = new ArrayList<>();
+        this.extractableSlots = null;
         ListTag storedItemsTag = input.getList("storedItems", Tag.TAG_COMPOUND);
         for (int index = 0; index < storedItemsTag.size(); index++) {
             this.storedItems.add(ItemStack.of(storedItemsTag.getCompound(index)));
@@ -239,6 +241,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             }
         }
         if (changed) {
+            this.extractableSlots = null;
             this.normalizeStoredItems();
             this.setChanged();
         }
@@ -1335,6 +1338,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         }
         ItemStack split = existing.split(amount);
         if (!split.isEmpty()) {
+            this.extractableSlots = null;
             this.setChanged();
         }
         return split;
@@ -1347,6 +1351,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             return ItemStack.EMPTY;
         }
         this.storedItems.set(slot, ItemStack.EMPTY);
+        this.extractableSlots = null;
         this.setChanged();
         return existing;
     }
@@ -1358,6 +1363,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             return;
         }
         this.storedItems.set(slot, stack);
+        this.extractableSlots = null;
         this.setChanged();
     }
 
@@ -1372,6 +1378,7 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
     @Override
     public void clearContent() {
         this.storedItems.clear();
+        this.extractableSlots = null;
         this.normalizeStoredItems();
         this.setChanged();
     }
@@ -1381,12 +1388,24 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
         if (!this.inventoryInteractivityEnabled) {
             return new int[0];
         }
-        this.normalizeStoredItems();
-        int[] slots = new int[this.storedItems.size()];
-        for (int index = 0; index < slots.length; index++) {
-            slots[index] = index;
+        if (this.extractableSlots == null) {
+            int occupiedSlotCount = 0;
+            for (ItemStack stack : this.storedItems) {
+                if (!stack.isEmpty()) {
+                    occupiedSlotCount++;
+                }
+            }
+
+            int[] slots = new int[occupiedSlotCount];
+            int slotIndex = 0;
+            for (int index = 0; index < this.storedItems.size(); index++) {
+                if (!this.storedItems.get(index).isEmpty()) {
+                    slots[slotIndex++] = index;
+                }
+            }
+            this.extractableSlots = slots;
         }
-        return slots;
+        return this.extractableSlots;
     }
 
     @Override
@@ -1418,11 +1437,17 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
 
     private void normalizeStoredItems() {
         int maxSlots = this.getStorageSlots();
+        boolean changed = false;
         while (this.storedItems.size() < maxSlots) {
             this.storedItems.add(ItemStack.EMPTY);
+            changed = true;
         }
         if (this.storedItems.size() > maxSlots) {
             this.storedItems = new ArrayList<>(this.storedItems.subList(0, maxSlots));
+            changed = true;
+        }
+        if (changed) {
+            this.extractableSlots = null;
         }
     }
 
@@ -1435,11 +1460,13 @@ public class SuperSpawnerBlockEntity extends BlockEntity implements MenuProvider
             ItemStack existing = this.storedItems.get(i);
             if (existing.isEmpty()) {
                 this.storedItems.set(i, stack.copy());
+                this.extractableSlots = null;
                 return;
             }
             if (ItemStack.isSameItemSameTags(existing, stack) && existing.getCount() < existing.getMaxStackSize()) {
                 int move = Math.min(stack.getCount(), existing.getMaxStackSize() - existing.getCount());
                 existing.grow(move);
+                this.extractableSlots = null;
                 stack.shrink(move);
                 if (stack.isEmpty()) {
                     return;
